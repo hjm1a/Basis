@@ -112,7 +112,7 @@ namespace Basis.Scripts.Drivers
         public RuntimeAnimatorController SavedruntimeAnimatorController;
         public void PutAvatarIntoTPose()
         {
-            BasisDebug.Log("PutAvatarIntoTPose", BasisDebug.LogTag.Avatar);
+          //  BasisDebug.Log("PutAvatarIntoTPose", BasisDebug.LogTag.Avatar);
             CurrentlyTposing = true;
             if (SavedruntimeAnimatorController == null)
             {
@@ -135,7 +135,7 @@ namespace Basis.Scripts.Drivers
 
         public void ResetAvatarAnimator()
         {
-            BasisDebug.Log("ResetAvatarAnimator", BasisDebug.LogTag.Avatar);
+           // BasisDebug.Log("ResetAvatarAnimator", BasisDebug.LogTag.Avatar);
             Player.BasisAvatar.Animator.runtimeAnimatorController = SavedruntimeAnimatorController;
             SavedruntimeAnimatorController = null;
             CurrentlyTposing = false;
