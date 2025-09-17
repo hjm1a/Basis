@@ -85,15 +85,7 @@ namespace Basis.Scripts.Networking
             for (int Index = 0; Index < snapshot.Length; Index++)
             {
                 snapshot[Index].Apply();
-                if (snapshot[Index].AudioReceiverModule.HasTransform)
-                {
-                    var MouthPosition = RemoteBoneJobSystem.GetOutgoingPosition(snapshot[Index].playerId, BoneIdx.Mouth);
-                    var MouthRotation = RemoteBoneJobSystem.GetOutgoingRotation(snapshot[Index].playerId, BoneIdx.Mouth);
-                    BasisAudioTransformDriver.EnqueueSet(snapshot[Index].AudioReceiverModule.AudioSourceTransform, MouthPosition, MouthRotation);
-                }
             }
-            BasisAudioTransformDriver.BeginFrame();
-            BasisAudioTransformDriver.EndFrame();
         }
         public static int GetServerTimeOffsetSeconds()
         {
