@@ -58,7 +58,7 @@ namespace Basis.Scripts.Networking
         // Simulation ticks stay here; they call into players/driver
 
         public static JobHandle BoneJobSystem;
-        public static void SimulateNetworkCompute()
+        public static void SimulateNetworkCompute(float UnscaledDeltaTime)
         {
             if (!NetworkRunning) return;
 
@@ -68,7 +68,7 @@ namespace Basis.Scripts.Networking
             {
                 var RemotePlayer = snapshot[Index].RemotePlayer;
                 // Each frame, wherever you previously did the per-receiver Simulate/Apply:
-                snapshot[Index].Compute();
+                snapshot[Index].Compute(UnscaledDeltaTime);
             }
             BasisRemoteNetworkDriver.Compute();
             BasisNetworkProfiler.Update();
