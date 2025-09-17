@@ -360,9 +360,24 @@ public static class BasisRemoteNetworkDriver
     public static bool GetOutputs_NoAlloc(int index,out float3 outPos,out float3 outScale,out quaternion outRot,out float3 BodyPosition,float[] outMuscles)
     {
         // minimal guards; no allocations
-        outPos = default; outScale = default; outRot = default; BodyPosition = default;
-        if ((uint)index >= FixedCapacity) return false;
-        if (outMuscles == null || outMuscles.Length != _muscleCount) return false;
+        if ((uint)index >= FixedCapacity)
+        {
+            outPos = Vector3.zero;
+            outScale = Vector3.one;
+            outRot = Quaternion.identity;
+            BodyPosition = Vector3.zero;
+            outMuscles = default;
+            return false;
+        }
+        if (outMuscles == null || outMuscles.Length != _muscleCount)
+        {
+            outPos = Vector3.zero;
+            outScale = Vector3.one;
+            outRot = Quaternion.identity;
+            BodyPosition = Vector3.zero;
+            outMuscles = default;
+            return false;
+        }
 
         outPos = _outPositions[index];
         outScale = _outScales[index];
