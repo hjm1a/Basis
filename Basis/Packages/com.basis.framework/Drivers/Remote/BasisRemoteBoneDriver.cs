@@ -22,7 +22,7 @@ public static class BoneIdx
 }
 
 // ---------------- SoA structs ----------------
-public struct RemoteAuthoring
+public struct TposeAndOffsetDataJob
 {
     public float3 tposeLocal_unscaled_Head;
     public float3 tposeLocal_unscaled_Neck;
@@ -39,7 +39,7 @@ public struct RemoteAuthoring
     public float3 offsets_unscaled_Mouth;
 }
 
-public struct RemoteFrameInput
+public struct GeneratedTranslationalData
 {
     public float3 rootWorld;
     public float3 headWPos;
@@ -53,7 +53,6 @@ public struct RemoteFrameInput
 
 public struct RemoteScaleCache
 {
-    public float3 lastScale;
     public float3 tposeLocal_scaled_Hips;
     public float3 tposeLocal_scaled_Mouth;
     public float3 offsets_scaled_Neck;
@@ -71,33 +70,30 @@ public struct RemoteFrameOutput
 }
 
 [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low)]
-public struct BoneSimJob : IJobParallelFor
+public struct BasisRemoteBoneJob : IJobParallelFor
 {
-    [ReadOnly] public NativeArray<RemoteAuthoring> Authoring;
-    [ReadOnly] public NativeArray<RemoteFrameInput> In;
-    public NativeArray<RemoteScaleCache> ScaleCache;
+    [ReadOnly] public NativeArray<TposeAndOffsetDataJob> Authoring;
+    [ReadOnly] public NativeArray<GeneratedTranslationalData> In;
+    [WriteOnly]
     public NativeArray<RemoteFrameOutput> Out;
+
+    public NativeArray<RemoteScaleCache> GeneratedScales;
 
     public void Execute(int i)
     {
         var a = Authoring[i];
         var f = In[i];
-        var sc = ScaleCache[i];
+        var sc = GeneratedScales[i];
 
-        if (!f.nowScale.Equals(sc.lastScale))
-        {
-            sc.tposeLocal_scaled_Hips = a.tposeLocal_unscaled_Hips * f.nowScale;
-            sc.tposeLocal_scaled_Mouth = a.tposeLocal_unscaled_Mouth * f.nowScale;
+        sc.tposeLocal_scaled_Hips = a.tposeLocal_unscaled_Hips * f.nowScale;
+        sc.tposeLocal_scaled_Mouth = a.tposeLocal_unscaled_Mouth * f.nowScale;
 
-            sc.offsets_scaled_Neck = a.offsets_unscaled_Neck * f.nowScale;
-            sc.offsets_scaled_Chest = a.offsets_unscaled_Chest * f.nowScale;
-            sc.offsets_scaled_Spine = a.offsets_unscaled_Spine * f.nowScale;
-            sc.offsets_scaled_CenterEye = a.offsets_unscaled_CenterEye * f.nowScale;
-            sc.offsets_scaled_Mouth = a.offsets_unscaled_Mouth * f.nowScale;
-
-            sc.lastScale = f.nowScale;
-            ScaleCache[i] = sc;
-        }
+        sc.offsets_scaled_Neck = a.offsets_unscaled_Neck * f.nowScale;
+        sc.offsets_scaled_Chest = a.offsets_unscaled_Chest * f.nowScale;
+        sc.offsets_scaled_Spine = a.offsets_unscaled_Spine * f.nowScale;
+        sc.offsets_scaled_CenterEye = a.offsets_unscaled_CenterEye * f.nowScale;
+        sc.offsets_scaled_Mouth = a.offsets_unscaled_Mouth * f.nowScale;
+        GeneratedScales[i] = sc;
 
         quaternion headR = math.mul(f.tposeHeadRot, f.headWRot);
         quaternion hipsR = math.mul(f.tposeHipsRot, f.hipsWRot);
@@ -179,7 +175,7 @@ struct GatherHipsJob : IJobParallelForTransform
 }
 
 [BurstCompile]
-struct CombineInputsJob : IJobParallelFor
+struct AgrigateTranslationalData : IJobParallelFor
 {
     [ReadOnly] public NativeArray<float3> rootPos;
     [ReadOnly] public NativeArray<float3> rootScale;
@@ -190,11 +186,11 @@ struct CombineInputsJob : IJobParallelFor
     [ReadOnly] public NativeArray<quaternion> tposeHeadRot;
     [ReadOnly] public NativeArray<quaternion> tposeHipsRot;
 
-    public NativeArray<RemoteFrameInput> InOut;
+    public NativeArray<GeneratedTranslationalData> InOut;
 
     public void Execute(int i)
     {
-        InOut[i] = new RemoteFrameInput
+        InOut[i] = new GeneratedTranslationalData
         {
             rootWorld = rootPos[i],
             headWPos = headPos[i],
@@ -212,8 +208,8 @@ struct CombineInputsJob : IJobParallelFor
 public static class RemoteBoneJobSystem
 {
     // Persistent SoA
-    static NativeList<RemoteAuthoring> sAuthoring;
-    static NativeList<RemoteFrameInput> sIn;
+    static NativeList<TposeAndOffsetDataJob> sAuthoring;
+    static NativeList<GeneratedTranslationalData> sIn;
     static NativeList<RemoteScaleCache> sScale;
     static NativeList<RemoteFrameOutput> sOut;
 
@@ -249,8 +245,8 @@ public static class RemoteBoneJobSystem
     {
         if (sInitialized) return;
 
-        sAuthoring = new NativeList<RemoteAuthoring>(initialCapacity, Allocator.Persistent);
-        sIn = new NativeList<RemoteFrameInput>(initialCapacity, Allocator.Persistent);
+        sAuthoring = new NativeList<TposeAndOffsetDataJob>(initialCapacity, Allocator.Persistent);
+        sIn = new NativeList<GeneratedTranslationalData>(initialCapacity, Allocator.Persistent);
         sScale = new NativeList<RemoteScaleCache>(initialCapacity, Allocator.Persistent);
         sOut = new NativeList<RemoteFrameOutput>(initialCapacity, Allocator.Persistent);
 
@@ -294,15 +290,9 @@ public static class RemoteBoneJobSystem
     }
 
     // -------- Add / Remove --------
-    public static int AddRemotePlayer(
-        int key,
-        Transform remotePlayerRoot,
-        Transform head, Transform hips,
-        BasisCalibratedCoords tposeHead, BasisCalibratedCoords tposeHips,
-        float3 authoredCenterEyeWorld,
-        float3 authoredMouthWorld,
-        int remotePlayerDataIndex,
-        Func<bool> isNameplateVisible // nullable
+    public static int AddRemotePlayer( int key, Transform remotePlayerRoot, Transform head, Transform hips,
+        BasisCalibratedCoords tposeHead, BasisCalibratedCoords tposeHips, float3 authoredCenterEyeWorld,
+        float3 authoredMouthWorld, int remotePlayerDataIndex,Func<bool> isNameplateVisible
     )
     {
         if (!sInitialized) Initialize();
@@ -326,7 +316,7 @@ public static class RemoteBoneJobSystem
         float3 offEye = tEye - tHead;
         float3 offMouth = tMouth - tHead;
 
-        var a = new RemoteAuthoring
+        var a = new TposeAndOffsetDataJob
         {
             tposeLocal_unscaled_Head = tHead,
             tposeLocal_unscaled_Neck = tNeck,
@@ -351,7 +341,7 @@ public static class RemoteBoneJobSystem
         // Append SoA
         sAuthoring.Add(a);
         sIn.Add(default);
-        sScale.Add(new RemoteScaleCache { lastScale = new float3(1, 1, 1) });
+        sScale.Add(new RemoteScaleCache());
         sOut.Add(default);
 
         // Cache TPose quats
@@ -507,7 +497,7 @@ public static class RemoteBoneJobSystem
 
         var deps = JobHandle.CombineDependencies(hRoot, hHead, hHips);
 
-        var combine = new CombineInputsJob
+        var combine = new AgrigateTranslationalData
         {
             rootPos = sTmpRootPos,
             rootScale = sTmpRootScale,
@@ -518,15 +508,15 @@ public static class RemoteBoneJobSystem
             tposeHeadRot = sTPoseHeadRot.AsDeferredJobArray(),
             tposeHipsRot = sTPoseHipsRot.AsDeferredJobArray(),
             InOut = sIn.AsDeferredJobArray()
-        }.Schedule(sAuthoring.Length, math.max(1, batchSize), deps);
+        }.Schedule(sAuthoring.Length, batchSize, deps);
 
-        var sim = new BoneSimJob
+        var sim = new BasisRemoteBoneJob
         {
             Authoring = sAuthoring.AsDeferredJobArray(),
             In = sIn.AsDeferredJobArray(),
-            ScaleCache = sScale.AsDeferredJobArray(),
+            GeneratedScales = sScale.AsDeferredJobArray(),
             Out = sOut.AsDeferredJobArray()
-        }.Schedule(sAuthoring.Length, math.max(1, batchSize), combine);
+        }.Schedule(sAuthoring.Length, batchSize, combine);
 
         sPending = sim;
         return sim;
@@ -591,12 +581,5 @@ public static class RemoteBoneJobSystem
             default: return quaternion.identity;
         }
     }
-
-    public static float GetDiffHipToHeadMouthY(int key)
-    {
-        if (!TryGetIndex(key, out int idx)) return 0f;
-        return sOut[idx].diffHipToHeadMouthY;
-    }
-
     static bool TryGetIndex(int key, out int idx) => sKeyToIndex.TryGetValue(key, out idx);
 }
