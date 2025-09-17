@@ -75,10 +75,8 @@ namespace Basis.Scripts.Drivers
             if (hasDatainBoneDriver)
             {
                 RemoteBoneJobSystem.RemoveRemotePlayer(player.NetworkReceiver.playerId);
-                BasisRemoteNetworkDriver.RemoveRemotePlayer(player.NetworkReceiver.playerId);
                 hasDatainBoneDriver = false;
             }
-            BasisRemoteNetworkDriver.AddRemotePlayer(player.NetworkReceiver.playerId,player.AvatarTransform);
             // On player join:
             RemoteBoneJobSystem.AddRemotePlayer(
                 key: player.NetworkReceiver.playerId,

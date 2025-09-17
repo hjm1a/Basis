@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Unity.Burst;
 using Unity.Collections;
@@ -31,14 +30,12 @@ public static class BasisRemoteNetworkDriver
     static NativeArray<float> euroValuesOutput;
     static NativeArray<float2> positionFilters;
     static NativeArray<float2> derivativeFilters;
-    static TransformAccessArray sAvatarScale;
-    static readonly Dictionary<int, int> sKeyToIndex = new Dictionary<int, int>();
     // State
     static int _muscleCount;
     static bool _initialized;
     static int _activeCount; // highest index written + 1
     static Allocator _allocator = Allocator.Persistent;
-    public static JobHandle sPending;
+    public static JobHandle oneEuroJob;
     // Parameters for Euro filter
     public static float MinCutoff = 0.05f;
     public static float Beta = 0.01f;
@@ -83,52 +80,16 @@ public static class BasisRemoteNetworkDriver
             derivativeFilters[c] = float2.zero;
         }
 
-
         _initialized = true;
     }
-    public static int AddRemotePlayer(int key, Transform AvatarScale)
-    {
-        CompletePending();
 
-        int idx = sAvatarScale.length;
-        sKeyToIndex[key] = idx;
-        sAvatarScale.Add(AvatarScale);
-        return key;
-    }
-    public static void RemoveRemotePlayer(int key)
-    {
-        CompletePending();
-
-        if (!sKeyToIndex.TryGetValue(key, out int idx)) return;
-
-        int last = sAvatarScale.length - 1;
-        if (idx != last)
-        {
-            // Swap-back SoA
-            sAvatarScale.RemoveAtSwapBack(idx);
-            foreach (var kv in sKeyToIndex)
-            {
-                if (kv.Value == last) { sKeyToIndex[kv.Key] = idx; break; }
-            }
-        }
-        else
-        {
-            sAvatarScale.RemoveAtSwapBack(last);
-        }
-        sKeyToIndex.Remove(key);
-    }
-    static void CompletePending()
-    {
-        sPending.Complete();
-        sPending = default;
-    }
     /// <summary>Dispose all native allocations. Call on shutdown/domain unload.</summary>
     public static void Shutdown()
     {
         if (!_initialized) return;
 
         // Make sure no jobs are still using our arrays
-        if (!sPending.IsCompleted) sPending.Complete();
+        if (!oneEuroJob.IsCompleted) oneEuroJob.Complete();
 
         DisposeAll();
         _activeCount = 0;
@@ -222,24 +183,10 @@ public static class BasisRemoteNetworkDriver
             MuscleCountPerAvatar = _muscleCount
         }.Schedule(num * _muscleCount, 128, musclesJob);
 
-        var ApplyAvatarScaleJob = new ApplyAvatarScaleJob
-        {
-            Scale = _outScales,
-        }.Schedule(sAvatarScale, scaledBodyJob);
-
         // Combine all deps so Apply() has a single fence
-        sPending = JobHandle.CombineDependencies(euroJobHandle, ApplyAvatarScaleJob);
+        oneEuroJob = JobHandle.CombineDependencies(euroJobHandle, scaledBodyJob);
     }
-    [BurstCompile]
-    struct ApplyAvatarScaleJob : IJobParallelForTransform
-    {
-        [ReadOnly]
-        public NativeArray<float3> Scale;
-        public void Execute(int index, TransformAccess tx)
-        {
-            tx.localScale = Scale[index];
-        }
-    }
+
     /*
      * BasicOneEuroFilterParallelJob.cs
      * Author: Dario Mazzanti (dario.mazzanti@iit.it), 2016
@@ -405,7 +352,7 @@ public static class BasisRemoteNetworkDriver
     public static void Apply()
     {
         if (!_initialized) return;
-        sPending.Complete(); // also fences scaledBody + transform jobs via combined deps
+        oneEuroJob.Complete(); // also fences scaledBody + transform jobs via combined deps
     }
 
     /// <summary>Read back the computed outputs for an index after Apply().</summary>
@@ -440,7 +387,6 @@ public static class BasisRemoteNetworkDriver
 
     static void AllocateAll(int capacity)
     {
-        sAvatarScale = new TransformAccessArray(capacity);
         // Transform data
         _prevPositions = new NativeArray<float3>(capacity, _allocator, NativeArrayOptions.UninitializedMemory);
         _targetPositions = new NativeArray<float3>(capacity, _allocator, NativeArrayOptions.UninitializedMemory);
@@ -495,7 +441,5 @@ public static class BasisRemoteNetworkDriver
         if (euroValuesOutput.IsCreated) euroValuesOutput.Dispose();
         if (positionFilters.IsCreated) positionFilters.Dispose();
         if (derivativeFilters.IsCreated) derivativeFilters.Dispose();
-
-        if (sAvatarScale.isCreated) sAvatarScale.Dispose();
     }
 }

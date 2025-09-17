@@ -156,10 +156,10 @@ struct GatherHipsJob : IJobParallelForTransform
 struct ApplyMouthJob : IJobParallelForTransform
 {
     [ReadOnly]
-    public NativeArray<RemoteFrameOutput> FrameData;
+    public NativeArray<RemoteFrameOutput> MouthRotation;
     public void Execute(int index, TransformAccess tx)
     {
-        tx.SetPositionAndRotation(FrameData[index].pos_Mouth, FrameData[index].rot_Mouth);
+        tx.SetPositionAndRotation(MouthRotation[index].pos_Mouth, MouthRotation[index].rot_Mouth);
     }
 }
 [BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Low)]
@@ -229,6 +229,7 @@ public static class RemoteBoneJobSystem
     static TransformAccessArray sHips;
 
     static TransformAccessArray sNamePlate;
+    static TransformAccessArray sAvatarScale;
     static TransformAccessArray sMouth;
     // Temp per-frame buffers (reused)
     static NativeArray<float3> sTmpRootPos, sTmpHeadPos, sTmpHipsPos;
@@ -255,6 +256,7 @@ public static class RemoteBoneJobSystem
         sHips = new TransformAccessArray(initialCapacity);
 
         sNamePlate = new TransformAccessArray(initialCapacity);
+        sAvatarScale = new TransformAccessArray(initialCapacity);
         sMouth = new TransformAccessArray(initialCapacity);
 
         sInitialized = true;
@@ -277,6 +279,7 @@ public static class RemoteBoneJobSystem
         if (sHips.isCreated) sHips.Dispose();
 
         if (sNamePlate.isCreated) sNamePlate.Dispose();
+        if (sAvatarScale.isCreated) sAvatarScale.Dispose();
         if (sMouth.isCreated) sMouth.Dispose();
 
         DisposeTempBuffers();
@@ -342,6 +345,7 @@ public static class RemoteBoneJobSystem
         sRoots.Add(remotePlayerRoot);
 
         sNamePlate.Add(NamePlate);
+        sAvatarScale.Add(AvatarScale);
         sMouth.Add(MouthTransform);
 
         sHeads.Add(head);
@@ -368,6 +372,7 @@ public static class RemoteBoneJobSystem
             sTPoseHipsRot[idx] = sTPoseHipsRot[last];
 
             sNamePlate.RemoveAtSwapBack(idx);
+            sAvatarScale.RemoveAtSwapBack(idx);
             sMouth.RemoveAtSwapBack(idx);
 
             sRoots.RemoveAtSwapBack(idx);
@@ -385,6 +390,7 @@ public static class RemoteBoneJobSystem
             sHips.RemoveAtSwapBack(last);
 
             sNamePlate.RemoveAtSwapBack(last);
+            sAvatarScale.RemoveAtSwapBack(last);
             sMouth.RemoveAtSwapBack(last);
         }
 
@@ -443,6 +449,7 @@ public static class RemoteBoneJobSystem
 
 
             sNamePlate.capacity = newCap;
+            sAvatarScale.capacity = newCap;
             sMouth.capacity = newCap;
         }
     }
@@ -502,8 +509,10 @@ public static class RemoteBoneJobSystem
         }.Schedule(sNamePlate, BoneSimulation);
         var ApplyMouthJob = new ApplyMouthJob
         {
-            FrameData = sOut.AsDeferredJobArray(),
+            MouthRotation = sOut.AsDeferredJobArray(),
         }.Schedule(sMouth, MappedNameplateApplyJob);
+
+
         sPending = ApplyMouthJob;
         return ApplyMouthJob;
     }
@@ -528,6 +537,22 @@ public static class RemoteBoneJobSystem
             case BoneIdx.CenterEye: return o.pos_CenterEye;
             case BoneIdx.Mouth: return o.pos_Mouth;
             default: return float3.zero;
+        }
+    }
+    public static quaternion GetOutgoingRotation(int key, int boneIndex)
+    {
+        if (!TryGetIndex(key, out int idx)) return quaternion.identity;
+        var o = sOut[idx];
+        switch (boneIndex)
+        {
+            case BoneIdx.Head: return o.rot_Head;
+            case BoneIdx.Neck: return o.rot_Neck;
+            case BoneIdx.Chest: return o.rot_Chest;
+            case BoneIdx.Spine: return o.rot_Spine;
+            case BoneIdx.Hips: return o.rot_Hips;
+            case BoneIdx.CenterEye: return o.rot_CenterEye;
+            case BoneIdx.Mouth: return o.rot_Mouth;
+            default: return quaternion.identity;
         }
     }
     static bool TryGetIndex(int key, out int idx) => sKeyToIndex.TryGetValue(key, out idx);
