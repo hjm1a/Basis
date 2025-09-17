@@ -93,8 +93,10 @@ namespace Basis.Scripts.Drivers
                     BasisHelpers.AvatarPositionConversion(player.BasisAvatar.AvatarMouthPosition),
                     player.BasisAvatar.Animator.transform.position
                 ),
-                remotePlayerDataIndex: player.RemotePlayerDataIndex,
-                isNameplateVisible: () => player.RemoteNamePlate.IsVisible
+                NamePlate: player.RemoteNamePlate.Self,
+                AvatarScale: player.BasisAvatar.Animator.transform,
+                MouthTransform: player.MouthTransform
+                
             );
             hasDatainBoneDriver = true;
 

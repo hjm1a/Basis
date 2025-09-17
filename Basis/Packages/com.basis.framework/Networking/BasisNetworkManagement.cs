@@ -72,9 +72,7 @@ namespace Basis.Scripts.Networking
             }
             BasisRemoteNetworkDriver.Compute();
             BasisNetworkProfiler.Update();
-            RemoteBoneJobSystem.Complete((dataIndex, hipsPos, diff) => {BasisRemoteNamePlateBatchDriver.UpdateDataRow(dataIndex, new Unity.Mathematics.float4(hipsPos, diff));},handle: BoneJobSystem);
-            BasisRemoteNamePlate.HasScheduledNamePlateBatch = true;
-            BasisRemoteNamePlate.NamePlateBatch = BasisRemoteNamePlateBatchDriver.Schedule();
+            RemoteBoneJobSystem.Complete(BoneJobSystem);
         }
 
         public static void SimulateNetworkApply()
@@ -93,12 +91,6 @@ namespace Basis.Scripts.Networking
                     var MouthRotation = RemoteBoneJobSystem.GetOutgoingRotation(snapshot[Index].playerId, BoneIdx.Mouth);
                     BasisAudioTransformDriver.EnqueueSet(snapshot[Index].AudioReceiverModule.AudioSourceTransform, MouthPosition, MouthRotation);
                 }
-            }
-
-            if (BasisRemoteNamePlate.HasScheduledNamePlateBatch)
-            {
-                BasisRemoteNamePlate.NamePlateBatch.Complete();
-                BasisRemoteNamePlate.HasScheduledNamePlateBatch = false;
             }
             BasisAudioTransformDriver.BeginFrame();
             BasisAudioTransformDriver.EndFrame();

@@ -35,6 +35,7 @@ namespace Basis.Scripts.BasisSdk.Players
         public BasisLoadableBundle AlwaysRequestedAvatar;
         public static GameObject NamePlate;
         public int RemotePlayerDataIndex;
+        public Transform MouthTransform;
         /// <summary>
         /// we are leaking this memory atm!
         /// </summary>
