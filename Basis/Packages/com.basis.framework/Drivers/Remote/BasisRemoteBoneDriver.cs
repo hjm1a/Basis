@@ -539,21 +539,5 @@ public static class RemoteBoneJobSystem
             default: return float3.zero;
         }
     }
-    public static quaternion GetOutgoingRotation(int key, int boneIndex)
-    {
-        if (!TryGetIndex(key, out int idx)) return quaternion.identity;
-        var o = sOut[idx];
-        switch (boneIndex)
-        {
-            case BoneIdx.Head: return o.rot_Head;
-            case BoneIdx.Neck: return o.rot_Neck;
-            case BoneIdx.Chest: return o.rot_Chest;
-            case BoneIdx.Spine: return o.rot_Spine;
-            case BoneIdx.Hips: return o.rot_Hips;
-            case BoneIdx.CenterEye: return o.rot_CenterEye;
-            case BoneIdx.Mouth: return o.rot_Mouth;
-            default: return quaternion.identity;
-        }
-    }
     static bool TryGetIndex(int key, out int idx) => sKeyToIndex.TryGetValue(key, out idx);
 }
