@@ -136,9 +136,8 @@ namespace Basis.Scripts.Networking.Receivers
                             );
                         }
                     }
-
-                    // If you DID NOT provide a TransformAccessArray to the driver via SetAvatarTransformList,
-                    // you can set localScale here on main thread:
+                    // its hard to move this out atm since the data that we supply only comes from a fixed size of ouputs but we need a more
+                    //moving targeted solution to account for transforms
                      Player.AvatarTransform.localScale = applyingScale;
 
                     // HumanPoseHandler must stay on main thread
