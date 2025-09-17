@@ -61,9 +61,12 @@ namespace Basis.Scripts.Networking.NetworkedAvatar
             while (_pool.Count > 0)
             {
                 var dataset = _pool.Pop();
-                if (dataset.Muscles.IsCreated)
+                if (dataset != null && dataset.Muscles != null)
                 {
-                    dataset.Muscles.Dispose();
+                    if (dataset.Muscles.IsCreated)
+                    {
+                        dataset.Muscles.Dispose();
+                    }
                 }
             }
         }

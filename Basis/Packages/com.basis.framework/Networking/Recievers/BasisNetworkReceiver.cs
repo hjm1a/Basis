@@ -53,9 +53,6 @@ namespace Basis.Scripts.Networking.Receivers
         // Main-thread staging for dequeued packets
         private readonly List<BasisAvatarBuffer> _staged = new List<BasisAvatarBuffer>(16);
 
-        // Shared zero array for safety
-        private static readonly float[] ZeroMuscles = new float[95];
-
         // ---------- Compute / Apply ----------
 
         /// <summary>
@@ -121,7 +118,7 @@ namespace Basis.Scripts.Networking.Receivers
                     HumanPose.bodyRotation = applyingRotation;
 
                     // Muscles
-                    Memcpy95(Muscles ?? ZeroMuscles, HumanPose.muscles);
+                    Memcpy95(Muscles, HumanPose.muscles);
 
                     // Overlay eyes/mouth in one tiny copy
                     unsafe
