@@ -7,55 +7,39 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Jobs;
-
-public static partial class BasisRemoteNetworkDriver
+public static class BasisRemoteNetworkDriver
 {
-    /// <summary>Fixed capacity for this driver instance.</summary>
     public const int FixedCapacity = 1024;
-
-    /// <summary>Returns the number of active indices (max index that has been written + 1).</summary>
-    public static int ActivePlayerCount => _activeCount;
-
-    /// <summary>Muscle count used by the driver.</summary>
-    public static int MuscleCount => _muscleCount;
-
-    // Native buffers (size == FixedCapacity, except muscles which is FixedCapacity * _muscleCount)
     static NativeArray<float3> _prevPositions;
     static NativeArray<float3> _targetPositions;
     static NativeArray<float3> _prevScales;
     static NativeArray<float3> _targetScales;
     static NativeArray<quaternion> _prevRotations;
     static NativeArray<quaternion> _targetRotations;
-    static NativeArray<float> _interpolationTimes; // per-index dt or interpolation t
-
+    static NativeArray<float> _interpolationTimes;
     static NativeArray<float3> _outPositions;
     static NativeArray<float3> _outScales;
     static NativeArray<quaternion> _outRotations;
-
-    // New: per-avatar animator human scale and precomputed body position (scaled)
-    static NativeArray<float> _humanScales;          // Player.BasisAvatar.AnimatorHumanScale
-    static NativeArray<float3> _scaledBodyPositions;  // = ApplyingPosition * SafeDivide(humanScale, ApplyingScale)
-
+    static NativeArray<float> _humanScales; 
+    static NativeArray<float3> _scaledBodyPositions;
     // Muscles (flattened: players * muscles)
-    static NativeArray<float> _prevMuscles;   // flattened
-    static NativeArray<float> _targetMuscles; // flattened
-    static NativeArray<float> _outMuscles;    // flattened (interpolated, before filter)
-
+    static NativeArray<float> _prevMuscles;
+    static NativeArray<float> _targetMuscles;
+    static NativeArray<float> _outMuscles;
     // 1€ filter buffers (flattened: players * muscles)
-    static NativeArray<float> euroValuesOutput;   // filtered output
-    static NativeArray<float2> positionFilters;   // per-channel state
-    static NativeArray<float2> derivativeFilters; // per-channel state
-
-
+    static NativeArray<float> euroValuesOutput;
+    static NativeArray<float2> positionFilters;
+    static NativeArray<float2> derivativeFilters;
     // State
     static int _muscleCount;
     static bool _initialized;
     static int _activeCount; // highest index written + 1
     static Allocator _allocator = Allocator.Persistent;
-
-    public static JobHandle oneEuroJob;         // final frame fence (combined deps)
-
-
+    public static JobHandle oneEuroJob;
+    // Parameters for Euro filter
+    public static float MinCutoff = 0.05f;
+    public static float Beta = 0.01f;
+    public static float DerivativeCutoff = 1.0f;
     /// <summary>Initialize the driver with a fixed capacity of 1024. Must be called before SetInputs/Compute/Apply/GetOutputs.</summary>
     public static void Initialize(int muscleCount, Allocator allocator = Allocator.Persistent)
     {
@@ -71,17 +55,17 @@ public static partial class BasisRemoteNetworkDriver
         AllocateAll(FixedCapacity);
 
         // Seed defaults
-        for (int i = 0; i < FixedCapacity; i++)
+        for (int Index = 0; Index < FixedCapacity; Index++)
         {
-            _prevScales[i] = new float3(1, 1, 1);
-            _targetScales[i] = new float3(1, 1, 1);
-            _prevRotations[i] = quaternion.identity;
-            _targetRotations[i] = quaternion.identity;
-            _interpolationTimes[i] = 0f;
+            _prevScales[Index] = new float3(1, 1, 1);
+            _targetScales[Index] = new float3(1, 1, 1);
+            _prevRotations[Index] = quaternion.identity;
+            _targetRotations[Index] = quaternion.identity;
+            _interpolationTimes[Index] = 0f;
 
             // New: default human scale to 1
-            _humanScales[i] = 1;
-            _scaledBodyPositions[i] = float3.zero;
+            _humanScales[Index] = 1;
+            _scaledBodyPositions[Index] = float3.zero;
         }
 
         // Seed muscles/filter state
@@ -114,14 +98,8 @@ public static partial class BasisRemoteNetworkDriver
     }
 
     /// <summary>Write inputs for a given index (0..FixedCapacity-1) for this frame.</summary>
-    public static void SetInputs(
-        int index, float humanScale,
-        float3 prevPos, float3 targetPos,
-        float3 prevScale, float3 targetScale,
-        quaternion prevRot, quaternion targetRot,
-        float interpolationTime,
-        NativeArray<float> prevMuscles,
-        NativeArray<float> targetMuscles)
+    public static void SetInputs( int index, float humanScale,float3 prevPos, float3 targetPos, float3 prevScale, float3 targetScale,
+        quaternion prevRot, quaternion targetRot, float interpolationTime, NativeArray<float> prevMuscles,NativeArray<float> targetMuscles)
     {
         if ((uint)index >= FixedCapacity)
             throw new IndexOutOfRangeException($"index {index} is out of range [0,{FixedCapacity - 1}]");
@@ -152,48 +130,6 @@ public static partial class BasisRemoteNetworkDriver
         var dstPtr = (byte*)dst.GetUnsafePtr() + (long)dstStart * sizeof(float);
         UnsafeUtility.MemCpy(dstPtr, srcPtr, bytes);
     }
-
-    /// <summary>Optional: reset a given index back to defaults (zeros/identity).</summary>
-    public static void ResetIndex(int index)
-    {
-        if ((uint)index >= FixedCapacity)
-            throw new IndexOutOfRangeException($"index {index} is out of range [0,{FixedCapacity - 1}]");
-
-        // Make sure no jobs are still reading/writing these buffers
-        if (!oneEuroJob.IsCompleted) oneEuroJob.Complete();
-
-        _prevPositions[index] = default;
-        _targetPositions[index] = default;
-        _prevScales[index] = new float3(1, 1, 1);
-        _targetScales[index] = new float3(1, 1, 1);
-        _prevRotations[index] = quaternion.identity;
-        _targetRotations[index] = quaternion.identity;
-        _interpolationTimes[index] = 0f;
-
-        _humanScales[index] =  1;
-        _scaledBodyPositions[index] = float3.zero;
-
-        int baseOffset = index * _muscleCount;
-        for (int m = 0; m < _muscleCount; m++)
-        {
-            int flat = baseOffset + m;
-            _prevMuscles[flat] = 0f;
-            _targetMuscles[flat] = 0f;
-            _outMuscles[flat] = 0f;
-
-            euroValuesOutput[flat] = 0f;
-            positionFilters[flat] = float2.zero;
-            derivativeFilters[flat] = float2.zero;
-        }
-
-        // Optionally shrink active count if we cleared the tail
-        if (index == _activeCount - 1)
-        {
-            int newCount = index;
-            _activeCount = newCount;
-        }
-    }
-
     /// <summary>Run the batched jobs once for the current frame.</summary>
     public static void Compute()
     {
@@ -370,12 +306,7 @@ public static partial class BasisRemoteNetworkDriver
         {
             int playerIndex = index / MuscleCountPerAvatar;
             float t = InterpolationTimes[playerIndex];
-
-            OutputMuscles[index] = math.lerp(
-                PreviousMuscles[index],
-                TargetMuscles[index],
-                t
-            );
+            OutputMuscles[index] = math.lerp( PreviousMuscles[index], TargetMuscles[index],t);
         }
     }
 
@@ -426,14 +357,7 @@ public static partial class BasisRemoteNetworkDriver
 
     /// <summary>Read back the computed outputs for an index after Apply().</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool GetOutputs_NoAlloc(
-        int index,
-        out float3 outPos,
-        out float3 outScale,
-        out quaternion outRot,
-        out float3 BodyPosition,
-        float[] outMuscles /* must be length == _muscleCount */
-      )
+    public static bool GetOutputs_NoAlloc(int index,out float3 outPos,out float3 outScale,out quaternion outRot,out float3 BodyPosition,float[] outMuscles)
     {
         // minimal guards; no allocations
         outPos = default; outScale = default; outRot = default; BodyPosition = default;
@@ -460,66 +384,6 @@ public static partial class BasisRemoteNetworkDriver
         BodyPosition = _scaledBodyPositions[index];
         return true;
     }
-
-    /// <summary>
-    /// Update the One Euro filter parameters on the shared network singleton and (optionally)
-    /// reset the filter internal state so it "forgets" previous history and re-converges
-    /// from the current inputs.
-    /// </summary>
-    public static void UpdateOneEuroParameters(float minCutoff, float beta, float derivativeCutoff, bool resetState = true)
-    {
-        // Ensure no jobs are currently touching the buffers.
-        if (!oneEuroJob.IsCompleted) oneEuroJob.Complete();
-
-        // Push values to the source of truth used in Compute()
-        MinCutoff = minCutoff;
-        Beta = beta;
-        DerivativeCutoff = derivativeCutoff;
-
-        if (resetState)
-        {
-            ResetFilterStateAll();
-        }
-    }
-
-    // Parameters for Euro filter
-    public static float MinCutoff = 0.05f;
-    public static float Beta = 0.01f;
-    public static float DerivativeCutoff = 1.0f;
-
-    /// <summary>Resets the filter state for ALL avatars/muscles.</summary>
-    public static void ResetFilterStateAll()
-    {
-        if (!oneEuroJob.IsCompleted) oneEuroJob.Complete();
-
-        int flat = FixedCapacity * _muscleCount;
-        for (int i = 0; i < flat; i++)
-        {
-            positionFilters[i] = float2.zero;   // previous raw (x) and filtered (y)
-            derivativeFilters[i] = float2.zero; // previous derivative raw (x) and filtered (y)
-            euroValuesOutput[i] = 0f;           // clear last filtered output
-        }
-    }
-
-    /// <summary>Resets the filter state for a single avatar index (0..FixedCapacity-1).</summary>
-    public static void ResetFilterStateForIndex(int index)
-    {
-        if ((uint)index >= FixedCapacity)
-            throw new IndexOutOfRangeException($"index {index} is out of range [0,{FixedCapacity - 1}]");
-
-        if (!oneEuroJob.IsCompleted) oneEuroJob.Complete();
-
-        int baseOffset = index * _muscleCount;
-        for (int m = 0; m < _muscleCount; m++)
-        {
-            int flat = baseOffset + m;
-            positionFilters[flat] = float2.zero;
-            derivativeFilters[flat] = float2.zero;
-            euroValuesOutput[flat] = 0f;
-        }
-    }
-
-    // ---------------- internal allocation helpers ----------------
 
     static void AllocateAll(int capacity)
     {
