@@ -11,9 +11,7 @@ namespace Basis.Scripts.Networking.Receivers
     public class BasisAudioReceiver
     {
         public BasisRemoteAudioDriver BasisRemoteVisemeAudioDriver = null;
-        [SerializeField]
         public AudioSource audioSource;
-        [SerializeField]
         public BasisAudioAndVisemeDriver visemeDriver = new BasisAudioAndVisemeDriver();
         public BasisVoiceRingBuffer InOrderRead = new BasisVoiceRingBuffer();
         public bool IsPlaying = false;
